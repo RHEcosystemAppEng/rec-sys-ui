@@ -1,0 +1,11 @@
+[project]
+name = "rec-sys-front"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "feast[postgres]>=0.48.1",
+    "gradio>=5.25.2",
+    "kafka-python>=2.1.5",
+]
