@@ -4,6 +4,10 @@ import numpy as np
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Literal
+from feast import FeatureStore
+
+# Load items from Parquet file
+store = FeatureStore('')
 
 class User(BaseModel):
     user_id: int
@@ -14,7 +18,7 @@ class User(BaseModel):
     
 #  TODO random the initiate user
 
-def load_items_exiting_user(store: feast.FeatureStore, user_id: int) -> List[int]:
+def load_items_exiting_user(user_id: int) -> List[int]:
     suggested_item_ids = store.get_online_features(
         features=store.get_feature_service('user_top_k_items'),
         entity_rows=[{'user_id': user_id}]
@@ -24,10 +28,9 @@ def load_items_exiting_user(store: feast.FeatureStore, user_id: int) -> List[int
     
     suggested_item = store.get_online_features(
         features=store.get_feature_service('item_service'),
-        entity_rows=[{'item_id': item_id for item_id in top_item_ids}]
-    )
-
-    return suggested_item
+        entity_rows=[{'item_id': item_id}  for item_id in top_item_ids]
+    ).to_df()
+    return suggested_item, 0
     
 # def load_items_new_user(store: feast.FeatureService):
 #     num_new_user = 1
