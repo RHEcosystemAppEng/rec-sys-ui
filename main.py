@@ -15,20 +15,53 @@ producer = KafkaProducer(
     bootstrap_servers=kafka_service,
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
-items_df = pd.read_parquet('recommendation_items.parquet')
 
 # Function to send interaction to Kafka
 async def send_interaction(user_id, item_id, interaction_type, rating=None, quantity=None):
-    interaction = {
-        'user_id': int(user_id),  # Convert to Python int
-        'item_id': int(item_id),  # Convert to Python int
-        'timestamp': datetime.now().isoformat(),
-        'interaction_type': interaction_type,
-        'rating': int(rating) if rating is not None else None, 
-        'quantity': int(quantity) if quantity is not None else None 
+    schema = {
+        "type": "struct",
+        "fields": [{
+            "field": "user_id",
+            "type": "int32",
+            "optional": False,
+        }, {
+            "field": "item_id",
+            "type": "int32",
+            "optional": False,
+        }, {
+            "field": "timestamp",
+            "type": "string",
+            "optional": False,
+            "format": "timestamp",
+        }, {
+            "field": "interaction_type",
+            "type": "string",
+            "optional": False,
+        }, {
+            "field": "rating",
+            "type": "int32",
+            "optional": True,
+        }, {
+            "field": "quantity",
+            "type": "int32",
+            "optional": True,
+        }],
+        "optional": False,
+        "name": "interaction"
     }
-    # print(interaction)
-    producer.send('interactions', interaction)
+    interaction = {
+        'user_id': int(user_id),
+        'item_id': int(item_id),
+        'timestamp': datetime.now().isoformat(" "),
+        'interaction_type': interaction_type,
+        'rating': int(rating) if rating is not None else None,
+        'quantity': int(quantity) if quantity is not None else None
+    }
+    payload = {
+        "schema": schema,
+        "payload": interaction
+    }
+    producer.send('jary-interactions', payload)
     producer.flush()
     return f"{interaction_type.capitalize()} action recorded for Item {item_id}, user_id: {user_id}"
 
@@ -79,8 +112,6 @@ css = """
 """
 
 with gr.Blocks(css=css) as demo:
-# with gr.Blocks() as demo:
-    # items_ids_state = gr.State([])
     items_df_state = gr.State(pd.DataFrame())
     gr.Markdown("# Retail Store Demo")
     with gr.Row():
