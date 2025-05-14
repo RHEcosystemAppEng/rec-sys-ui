@@ -56,18 +56,21 @@ project: feast_edb_rec_sys
 provider: local
 registry:
   registry_type: remote
-  path: feast-feast-edb-rec-sys-registry.jary-feast-example.svc.cluster.local
-  cert: service-ca.crt
+  path: feast-feast-edb-rec-sys-registry.rec-sys.svc.cluster.local
+  # path: feast-feast-edb-rec-sys-registry.jary-feast-example.svc.cluster.local
+  cert: tls.crt
+  # cert: service-ca.crt
 entity_key_serialization_version: 3
   
 
 online_store:
   type: postgres
-  host: cluster-sample-rw.jary-feast-example.svc.cluster.local
+  host: cluster-sample-rw.rec-sys.svc.cluster.local
+  # host: cluster-sample-rw.jary-feast-example.svc.cluster.local
   port: 5432
   database: app
   user: app     
-  password: "GwAh33gW9mWiBsfywo42pTtTPkg0TUODFerhdvP3endXPX8Fda0FlhKCy2xPMkPY"       
+  password: placeholder    
   # cert: tls.crt
   # sslcert_path: tls.crt
   vector_enabled: true

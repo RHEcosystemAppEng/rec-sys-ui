@@ -6,18 +6,18 @@ from datetime import datetime
 from utils import load_items_exiting_user
 from feast import FeatureStore
 from typing import List
+
 # Load items from Parquet file
 store = FeatureStore('')
 
 # Kafka producer setup
-kafka_service = 'xray-cluster-kafka-bootstrap.jary-feast-example.svc.cluster.local:9092'
+kafka_service = 'rec-sys-cluster-kafka-bootstrap.rec-sys.svc.cluster.local:9092'
 producer = KafkaProducer(
     bootstrap_servers=kafka_service,
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
-# Function to send interaction to Kafka
-async def send_interaction(user_id, item_id, interaction_type, rating=None, quantity=None):
+def build_intercation_payload(user_id, item_id, interaction_type, rating=None, quantity=None):
     schema = {
         "type": "struct",
         "fields": [{
@@ -57,18 +57,46 @@ async def send_interaction(user_id, item_id, interaction_type, rating=None, quan
         'rating': int(rating) if rating is not None else None,
         'quantity': int(quantity) if quantity is not None else None
     }
-    payload = {
+    message = {
         "schema": schema,
         "payload": interaction
     }
-    producer.send('jary-interactions', payload)
+    return message
+
+# Function to send interaction to Kafka
+def send_interaction(message, sentiment):
+    payload = message['payload']
+    user_id, item_id, interaction_type = payload['user_id'], payload['item_id'], payload['interaction_type']
+    if sentiment == 'positive':
+        producer.send('positive-interactions', message)
+    else:
+        producer.send('negetive-interactions', message)
+        
     producer.flush()
     return f"{interaction_type.capitalize()} action recorded for Item {item_id}, user_id: {user_id}"
 
+async def handle_view_interaction(previous_intercation_message, user_id, item_id, interaction_type, rating=None, quantity=None):
+    curr_message = build_intercation_payload(user_id, item_id, interaction_type, rating, quantity)
+    if previous_intercation_message is not None:
+        last_interaction_sentiment = determine_last_inter_sentiment(interaction_type, previous_intercation_message['payload']   ['interaction_type'], previous_intercation_message['payload']['rating'])
+        interaction_output = send_interaction(previous_intercation_message, last_interaction_sentiment)
+    else:
+        interaction_output = ''
+    return interaction_output, curr_message
+
+# Function to determine sentiment
+def determine_last_inter_sentiment(interaction_type, last_interaction_type, last_inter_rating=None):
+    print(interaction_type)
+    print(last_interaction_type)
+    if last_interaction_type == 'view' and (interaction_type == 'view' or interaction_type is None):
+        return 'negative'  # Views are negative unless followed by positive actions
+    if last_interaction_type == 'rate' and last_inter_rating in [1, 2]:
+        return 'negative'
+    return 'positive'
 
 # Function to display item and handle navigation
 def display_item(index, items_df):
-    index = int(index)  # Ensure index is an integer
+    index = int(index)
     if index < 0:
         index = 0
     elif index >= len(items_df):
@@ -91,14 +119,11 @@ def display_item(index, items_df):
     return (
         index,
         item_display,
-        row['item_id'],  # Pass item_id for interactions
-        f"Item {index + 1} of {len(items_df)}"  # Navigation status
+        row['item_id'],
+        f"Item {index + 1} of {len(items_df)}"
     )
 
-# def load_items(item_ids: List[int]):
-#     return items_df[items_df['item_id'].isin(item_ids)]
-
-# Custom CSS to limit content width to 400px
+# Custom CSS
 css = """
 .gradio-container {
     max-width: 800px !important;
@@ -113,19 +138,18 @@ css = """
 
 with gr.Blocks(css=css) as demo:
     items_df_state = gr.State(pd.DataFrame())
+    last_message = gr.State(value=None)  # Track pending view interaction
     gr.Markdown("# Retail Store Demo")
     with gr.Row():
-        
         with gr.Column():
             item_markdown = gr.Markdown("## Item 1")
-            index = gr.State(value=0)  # Track current item index
-            item_id_state = gr.State()  # Store current item_id for interactions
-            item_display = gr.Markdown()  # Display item details
-        
+            index = gr.State(value=0)
+            item_id_state = gr.State()
+            item_display = gr.Markdown()
         with gr.Column():
             with gr.Row():
                 user_id = gr.Number(label="Enter your user ID", value=1, minimum=1, maximum=1000)
-                nav_status = gr.Textbox(label="Navigation", interactive=False)  # Show current item position
+                nav_status = gr.Textbox(label="Navigation", interactive=False)
             with gr.Row():
                 prev_btn = gr.Button("Previous item")
                 next_btn = gr.Button("Next item")
@@ -142,6 +166,7 @@ with gr.Blocks(css=css) as demo:
                         rate_btn = gr.Button("Rate", min_width=3)
             interaction_output = gr.Textbox(label="Interaction Status")
 
+
     # Initial display
     demo.load(
         fn=load_items_exiting_user,
@@ -152,11 +177,11 @@ with gr.Blocks(css=css) as demo:
         inputs=[index, items_df_state],
         outputs=[index, item_display, item_id_state, nav_status]
     ).then(
-        fn=send_interaction,
-        inputs=[user_id, item_id_state, gr.State(value='view')],
-        outputs=interaction_output
+        fn=handle_view_interaction,
+        inputs=[last_message, user_id, item_id_state, gr.State(value='view')],
+        outputs=[interaction_output, last_message]
     )
-    
+
     # Navigation button handlers
     prev_btn.click(
         fn=lambda idx: idx - 1,
@@ -167,9 +192,9 @@ with gr.Blocks(css=css) as demo:
         inputs=[index, items_df_state],
         outputs=[index, item_display, item_id_state, nav_status]
     ).then(
-        fn=send_interaction,
-        inputs=[user_id, item_id_state, gr.State(value='view')],
-        outputs=interaction_output
+        fn=handle_view_interaction,
+        inputs=[last_message, user_id, item_id_state, gr.State(value='view')],
+        outputs=[interaction_output, last_message]
     ).then(
         fn=lambda id: f'## Item {id}',
         inputs=item_id_state,
@@ -185,37 +210,35 @@ with gr.Blocks(css=css) as demo:
         inputs=[index, items_df_state],
         outputs=[index, item_display, item_id_state, nav_status]
     ).then(
-        fn=send_interaction,
-        inputs=[user_id, item_id_state, gr.State(value='view')],
-        outputs=interaction_output
+        fn=handle_view_interaction,
+        inputs=[last_message, user_id, item_id_state, gr.State(value='view')],
+        outputs=[interaction_output, last_message]
     ).then(
         fn=lambda id: f'## Item {id}',
         inputs=item_id_state,
         outputs=item_markdown
     )
 
-
-    # Interaction handlers
     cart_btn.click(
-        fn=send_interaction,
-        inputs=[user_id, item_id_state, gr.State(value='cart')],
-        outputs=interaction_output
+        fn=handle_view_interaction,
+        inputs=[last_message, user_id, item_id_state, gr.State(value='cart')],
+        outputs=[interaction_output, last_message]
     )
     purchase_btn.click(
-        fn=send_interaction,
-        inputs=[user_id, item_id_state, gr.State(value='purchase'), gr.State(value=None), quantity],
-        outputs=interaction_output
+        fn=handle_view_interaction,
+        inputs=[last_message, user_id, item_id_state, gr.State(value='purchase'), gr.State(value=None), quantity],
+        outputs=[interaction_output, last_message]
     )
     rate_btn.click(
-        fn=send_interaction,
-        inputs=[user_id, item_id_state, gr.State(value='rate'), rating, gr.State(value=None)],
-        outputs=interaction_output
+        fn=handle_view_interaction,
+        inputs=[last_message, user_id, item_id_state, gr.State(value='rate'), rating, gr.State(value=None)],
+        outputs=[interaction_output, last_message]
     )
-    
+
     user_id.input(
-        fn=send_interaction,
-        inputs=[user_id, item_id_state, gr.State(value='view')],
-        outputs=interaction_output
+        fn=handle_view_interaction,
+        inputs=[last_message, user_id, item_id_state, gr.State(value='view')],
+        outputs=[interaction_output, last_message]
     ).then(
         fn=load_items_exiting_user,
         inputs=user_id,
@@ -226,7 +249,10 @@ with gr.Blocks(css=css) as demo:
         outputs=[index, item_display, item_id_state, nav_status]
     )
 
+    # Handle app close 
+    # this is bug the closure is created 
+    demo.unload(lambda :handle_view_interaction(last_message, user_id, item_id_state, gr.State(value='None')))
 
 # Launch the Gradio app
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(server_name="0.0.0.0", server_port=8080)
