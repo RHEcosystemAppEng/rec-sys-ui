@@ -30,6 +30,7 @@ def load_items_exiting_user(user_id: int) -> List[int]:
         features=store.get_feature_service('item_service'),
         entity_rows=[{'item_id': item_id}  for item_id in top_item_ids]
     ).to_df()
+    print(suggested_item)
     return suggested_item, 0
     
 # def load_items_new_user(store: feast.FeatureService):
