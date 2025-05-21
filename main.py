@@ -6,12 +6,13 @@ from datetime import datetime
 from utils import load_items_exiting_user
 from feast import FeatureStore
 from typing import List
+import os
 
 # Load items from Parquet file
 store = FeatureStore('')
 
 # Kafka producer setup
-kafka_service = 'rec-sys-cluster-kafka-bootstrap.rec-sys.svc.cluster.local:9092'
+kafka_service = os.getenv("KAFKA_SERVICE_ADDR", 'rec-sys-cluster-kafka-bootstrap.rec-sys.svc.cluster.local:9092')
 producer = KafkaProducer(
     bootstrap_servers=kafka_service,
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
@@ -71,7 +72,7 @@ def send_interaction(message, sentiment):
         producer.send('positive-interactions', message)
     else:
         producer.send('negetive-interactions', message)
-        
+
     producer.flush()
     return f"{interaction_type.capitalize()} action recorded for Item {item_id}, user_id: {user_id}"
 
@@ -249,8 +250,8 @@ with gr.Blocks(css=css) as demo:
         outputs=[index, item_display, item_id_state, nav_status]
     )
 
-    # Handle app close 
-    # this is bug the closure is created 
+    # Handle app close
+    # this is bug the closure is created
     demo.unload(lambda :handle_view_interaction(last_message, user_id, item_id_state, gr.State(value='None')))
 
 # Launch the Gradio app
